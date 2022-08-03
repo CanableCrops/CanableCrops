@@ -1,0 +1,46 @@
+let incidents =SecurityIncident
+    | where Status == "Closed"
+    | extend WorkedBy = iff(ModifiedBy != "Microsoft 365 Defender", ModifiedBy, Owner.assignedTo)
+    | where not(isempty(WorkedBy))
+    | distinct WorkedBy, Title, Severity, Description, IncidentNumber
+    | summarize Closed =count()by WorkedBy, Severity
+    | sort by Severity, Closed;
+let high = incidents
+    | where Severity == "High"
+    | project-rename High = Closed
+    | project-away Severity;
+let informational = incidents
+    | where Severity == "Informational"
+    | project-rename Informational = Closed
+    | project-away Severity;
+let medium = incidents
+    | where Severity == "Medium"
+    | project-rename Medium = Closed
+    | project-away Severity;
+let low = incidents
+    | where Severity == "Low"
+    | project-rename Low = Closed
+    | project-away Severity;
+let getFirstTable=high
+    | join kind= fullouter  (medium) on WorkedBy
+    | extend WorkedBy =iif(isempty(WorkedBy), WorkedBy1, WorkedBy)
+    | join kind= fullouter (low) on WorkedBy
+    | extend WorkedBy =iif(isempty(WorkedBy), WorkedBy2, WorkedBy)
+    | join kind=fullouter (informational) on WorkedBy
+    | extend WorkedBy =iif(isempty(WorkedBy), WorkedBy3, WorkedBy)
+    | project-away WorkedBy1, WorkedBy2, WorkedBy3
+    | extend High = iif(isempty(High), 0, High)
+    | extend Medium = iif(isempty(Medium), 0, Medium)
+    | extend Low = iif(isempty(Low), 0, Low)
+    | extend Informational = iif(isempty(Informational), 0, Informational)
+    | extend Total = High + Medium + Low + Informational
+    | sort by Total;
+let getSum=getFirstTable
+    | summarize sum(Total), make_set(WorkedBy)
+    | mv-expand WorkedBy=set_WorkedBy
+    | extend WorkedBy = tostring(WorkedBy);
+getFirstTable
+| join (getSum) on WorkedBy
+| extend Total_Percent_Worked = strcat(round((Total * 1.0) / (sum_Total * 1.0) * 100, 1), '%')
+| project WorkedBy, High, Medium, Low, Informational, Total, Total_Percent_Worked
+| sort by Total
