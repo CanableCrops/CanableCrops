@@ -1,0 +1,13 @@
+let allIn24Hours =SigninLogs
+| where TimeGenerated >=ago(24h)
+| extend Location = strcat(LocationDetails.city, " ", LocationDetails.state, " ", LocationDetails.countyOrRegion);
+allIn24Hours
+| summarize count() by UserPrincipalName, IPAddress, Location
+| extend  IPCount = pack("IPAddress",IPAddress, "Count", count_, "Location", Location)
+| summarize LogonDetails= make_set(IPCount) by UserPrincipalName
+| join (allIn24Hours | summarize TotalCount =count() by UserPrincipalName) on UserPrincipalName
+| project UserPrincipalName, TotalCount, LogonDetails
+| extend Total_IPs_Used = array_length(LogonDetails)
+// Displays users who have used more than 3 distinct IP addresses in the time frame
+| where Total_IPs_Used > 3
+| sort by TotalCount, Total_IPs_Used
